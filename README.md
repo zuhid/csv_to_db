@@ -8,5 +8,6 @@ execute `run.sh` to run the appliation
 ```
 docker container rm --force postgres-local
 docker run --name postgres-local -e POSTGRES_PASSWORD=P@ssw0rd -p 5432:5432 -d postgres:latest
+docker start postgres-local
 ```
 

@@ -4,68 +4,70 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"fmt"
-	"log"
 	"os"
+	"strings"
 
 	_ "github.com/lib/pq"
 )
 
-const (
-	host     = "localhost"
-	port     = 5432
-	user     = "postgres"
-	password = "P@ssw0rd"
-	dbname   = "csv_to_db"
-)
-
-func connectToDB() {
-	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbname)
-	db, err := sql.Open("postgres", psqlInfo)
-	if err != nil {
-		log.Fatal("Unable to connect to database", err)
-	}
-	defer db.Close()
-
-	// create table
-	createTableSQL := `CREATE TABLE IF NOT EXISTS contact (
-        first_name TEXT,
-        last_name TEXT
-    );`
-
-	_, err = db.Exec(createTableSQL)
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println("Table created successfully!")
-
-	// add data
-	insertData := `insert into contact (first_name, last_name) values ('John', 'Doe')`
-	_, err = db.Exec(insertData)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Println("data inserted successfully!")
-}
-
-func readCsvFile(filePath string) [][]string {
+func csvToDb(tableName string, filePath string, psqlInfo string) {
+	// read csv file
 	f, err := os.Open(filePath)
 	if err != nil {
-		log.Fatal("Unable to read input file "+filePath, err)
+		fmt.Println(`Error opening csv file: `, err)
 	}
 	defer f.Close()
 
-	csvReader := csv.NewReader(f)
-	records, err := csvReader.ReadAll()
+	// create db connection
+	db, err := sql.Open("postgres", psqlInfo)
 	if err != nil {
-		log.Fatal("Unable to parse file as CSV for "+filePath, err)
+		fmt.Println(`Error creating connection: `, err)
+	}
+	defer db.Close()
+
+	// read csv header line
+	reader := csv.NewReader(f)
+
+	// create table
+	line, err := reader.Read()
+	if err != nil {
+		fmt.Println(`Error reading csv: `, err)
 	}
 
-	return records
+	_, err = db.Exec(`create table if not exists ` + tableName + `("` + strings.Join(line, `" text, "`) + `" text);`)
+	if err != nil {
+		fmt.Println(`Error creating table: `, err)
+	}
+	_, err = db.Exec(`delete from ` + tableName + `;`)
+	if err != nil {
+		fmt.Println(`Error deleting table: `, err)
+	}
+
+	// load the data
+	for {
+		record, err := reader.Read()
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			fmt.Println("Error reading data: ", err)
+			return
+		}
+		// insert data
+		for i, str := range record {
+			record[i] = strings.Replace(str, `'`, `&#39;`, -1)
+		}
+		script := `insert into ` + tableName + ` values ('` + strings.Join(record, `','`) + `')`
+
+		_, err = db.Exec(script)
+		if err != nil {
+			fmt.Println(`Error inserting data: `+script, err)
+		}
+	}
 }
 
 func main() {
-	// records := readCsvFile("input/contact.csv")
-	// fmt.Println(records)
-	connectToDB()
+	psqlInfo := `host=localhost port=5432 user=postgres password=P@ssw0rd dbname=csv_to_db sslmode=disable`
+	// csvToDb(`snyk`, `input/snyk_issues_detail_01_30_2025_ee2b4003-d196-4160-9a5a-d70781c04519.csv`, psqlInfo)
+	csvToDb(`okta`, `input/syslog_query.csv`, psqlInfo)
 }
